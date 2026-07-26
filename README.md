@@ -1,108 +1,88 @@
 # Smart Retail Shelf Monitoring
+A fog-computing based smart retail system: mock sensors publish shelf data over MQTT to a coded fog node, which processes it locally (threshold alerts + batching) and forwards it to a serverless AWS backend, feeding a live dashboard. Built for NCI module H9FECC (Fog and Edge Computing).
 
-A fog/edge computing system for a retail store: mock sensors publish readings
-over MQTT to a fog node, which processes them locally and forwards the result
-to a real AWS cloud backend, feeding a live dashboard.
+---
 
-Built for NCI module H9FECC (Fog and Edge Computing).
+## Live Application
+http://smart-retail-dashboard-611292914398.s3-website-us-east-1.amazonaws.com
 
-## Architecture
+---
 
+## Tech Stack
+- **Sensors & Fog Node:** Python 3, paho-mqtt, requests
+- **Message Broker:** Mosquitto (MQTT)
+- **Cloud Backend:** AWS API Gateway, SQS, Lambda (Python 3.12), DynamoDB
+- **Dashboard Hosting:** AWS S3 (static website hosting)
+- **Infrastructure as Code:** AWS CloudFormation
+- **Dashboard:** HTML, CSS, JavaScript (no framework, no build step)
+- **Version Control:** GitHub (public repository: https://github.com/AmirNCI/smart-retail-shelf-monitoring)
+
+---
+
+## Features
+- 5 sensor types per shelf: weight, foot traffic, temperature, humidity, fridge door
+- 10 products across 5 categories (dairy, frozen, bakery, produce, beverages)
+- Configurable sensor frequency and fog dispatch rate, all driven from `config.json`
+- Fog node does real local processing — immediate alerts + 15-second batching, not a pass-through relay
+- Per-shelf alert thresholds (frozen and dairy have genuinely different normal ranges)
+- Fully serverless AWS backend — no EC2, scales automatically (verified with an 80-request concurrent burst test)
+- Live dashboard: stock levels, sensor readings, and active alerts, grouped by category
+- Dashboard is genuinely cloud-hosted on S3, not just a local file
+
+---
+
+## Project Structure
 ```
-Sensors (MQTT publish)
-   -> Fog node (threshold checks + 15s batching, MQTT subscribe / HTTP dispatch)
-      -> AWS API Gateway
-         -> SQS queue
-            -> Lambda (writes DynamoDB)
-               -> Lambda (reads DynamoDB)
-                  -> Dashboard (polls every 5s)
+Smart_Retail_Project/
+├── config.json              # all sensor, MQTT, and fog threshold configuration
+├── generators.py             # one function per sensor type, generates a reading
+├── sensor_base.py             # runs a single sensor forever (connect, loop, publish)
+├── run_sensors.py             # entry point — starts one thread per configured sensor
+├── fog_node.py                 # fog node: subscribe, threshold-check, batch, dispatch
+├── mock_ingest.py              # optional local Flask backend, for testing without AWS
+├── backend/
+│   ├── template.yaml           # CloudFormation: API Gateway, SQS, Lambda, DynamoDB, S3
+│   ├── lambda_ingest.py        # SQS -> DynamoDB (writes stock + alerts)
+│   └── lambda_query.py         # DynamoDB -> dashboard (reads stock + active alerts)
+└── dashboard/
+    └── index.html              # self-contained live dashboard (HTML/CSS/JS)
 ```
 
-**Sensor & fog layer** (all plain Python, no AWS SDK needed): 5 sensor types
-(shelf weight, foot traffic, temperature, humidity, fridge door) publish JSON
-readings over MQTT. The fog node subscribes to all of them, applies threshold
-logic locally (restock alerts, door-open-too-long, temperature/humidity
-anomalies), dispatches alerts immediately, and batches routine readings every
-`batch_interval_sec` (15s) instead of forwarding every reading one by one —
-this local processing is the actual point of a fog layer: cut bandwidth and
-latency to the cloud.
+---
 
-**Backend**: fully serverless on AWS — API Gateway receives the fog node's
-HTTP POSTs and writes straight into an SQS queue (no Lambda needed just to
-relay messages), which decouples ingestion from processing. A Lambda function
-drains the queue and writes to two DynamoDB tables (current stock per shelf,
-and active alerts). A second Lambda reads both tables and serves the
-dashboard's polling requests. Everything here (SQS, Lambda, DynamoDB
-on-demand billing) auto-scales with no manual capacity planning — verified
-with a burst of 80 concurrent requests, which CloudWatch showed Lambda
-handling with up to 5 concurrent executions automatically.
-
-**Dashboard**: a single self-contained HTML/JS/CSS file (no build step, no
-framework) that polls the backend every 5 seconds and shows live stock levels,
-sensor readings, and active alerts, grouped by product category. Hosted on
-S3 static website hosting (its own public AWS URL, part of the same
-CloudFormation stack) so it's a genuine cloud-hosted dashboard, not just a
-local file that happens to call a cloud API — see "AWS backend" below for the
-link and how to re-upload it after edits.
-
-## Product catalog
-
-`config.json` currently simulates **10 products across 5 categories** (shelf
-name encodes category as `<category>-<product>`):
-
-| Category | Products | Sensors |
-|---|---|---|
-| Dairy | milk, yogurt, cheese, butter | weight, foot traffic, temp, humidity, fridge door |
-| Frozen | icecream, vegetables | weight, foot traffic, temp, humidity, fridge door |
-| Bakery | bread | weight, foot traffic |
-| Produce | apples, bananas | weight, foot traffic |
-| Beverages | soda | weight, foot traffic |
-
-Dairy and frozen get the full sensor set since they're refrigerated; the rest
-are ambient shelves with no door/temperature/humidity to monitor. Frozen's
-temperature/humidity thresholds are deliberately different from dairy's (e.g.
--20 to -15°C vs 2-6°C) — the fog node reads each shelf's own thresholds from
-its sensor config rather than using one global rule for every shelf.
-
-## Requirements
-
-- Python 3, `pip install paho-mqtt requests` (`flask` too, only if you want
-  to run the old local mock backend instead of the real AWS one)
-- An MQTT broker (mosquitto): on macOS, `brew install mosquitto`, then run
-  it with `mosquitto -p 1883 -v` (no config file needed for local-only use)
-- An AWS account with the backend already deployed (see below) — this
-  project was built against an AWS Academy Learner Lab account
-
-## Running locally
-
-Start each component in its own terminal, from this `files/` directory:
+## Running Locally (Sensors + Fog Node)
+**Prerequisites:** Python 3, mosquitto
 
 ```bash
-# 1. Start the MQTT broker
+# Install dependencies
+pip install paho-mqtt requests
+
+# Install and start the MQTT broker (macOS)
+brew install mosquitto
 mosquitto -p 1883 -v
+```
 
-# 2. Start the fog node (dispatches to whatever URL is in config.json)
+In a second terminal, start the fog node (dispatches to whatever URL is set in `config.json`):
+```bash
 python3 fog_node.py config.json
+```
 
-# 3. Start the sensors
+In a third terminal, start the sensors:
+```bash
 python3 run_sensors.py config.json
 ```
 
-You should see sensor readings flow into the fog node, batched dispatches
-every 15 seconds, and immediate alert dispatches whenever a threshold is
-breached (restock needed, door left open too long, temperature/humidity out
-of range). Stop everything with Ctrl+C in each terminal (or `pkill -f
-run_sensors.py`, `pkill -f fog_node.py`, `pkill -f mosquitto` if backgrounded).
+You should see sensor readings flow into the fog node, batched dispatches every 15 seconds, and immediate alert dispatches whenever a threshold is breached. Stop everything with Ctrl+C in each terminal.
 
-Open `dashboard/index.html` directly in a browser (`open dashboard/index.html`
-on macOS) to watch stock levels and alerts update live.
+Open the dashboard locally to watch it update live:
+```bash
+open dashboard/index.html
+```
 
-## AWS backend
+---
 
-The backend is one CloudFormation stack (`backend/template.yaml`) — API
-Gateway, SQS, 2 Lambda functions (source also kept as standalone files in
-`backend/` for readability), and 2 DynamoDB tables. No S3 bucket is needed:
-the Lambda code is small enough to embed directly in the template.
+## Deploying the AWS Backend
+The whole backend — API Gateway, SQS, 2 Lambda functions, 2 DynamoDB tables, and an S3 bucket for the dashboard — deploys as a single CloudFormation stack.
 
 ```bash
 cd backend
@@ -113,62 +93,38 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_IAM
 ```
 
-After deploying, grab the endpoint URLs and put the ingest one into
-`config.json`'s `fog.dispatch_url`:
-
+Get the endpoint URLs after deploying:
 ```bash
 aws cloudformation describe-stacks --stack-name smart-retail-backend \
   --region us-east-1 --query "Stacks[0].Outputs"
 ```
 
-This also creates a public S3 bucket for the dashboard (`DashboardUrl` in the
-outputs above). Upload the dashboard to it whenever `dashboard/index.html`
-changes:
-
+Put the `IngestUrl` value into `config.json`'s `fog.dispatch_url`. Upload the dashboard to its S3 bucket (`DashboardUrl` output) whenever `dashboard/index.html` changes — S3 doesn't auto-sync with the local file:
 ```bash
 aws s3 cp dashboard/index.html \
   s3://smart-retail-dashboard-<your-account-id>/index.html \
   --content-type "text/html" --region us-east-1
 ```
 
-**If you're on an AWS Academy Learner Lab account** (as this project was
-built on): credentials expire every few hours (`ExpiredToken` error), and IAM
-is locked down — you can't create new IAM roles (`iam:CreateRole` is denied),
-so every Lambda reuses the pre-provisioned `LabRole`. AWS Budgets and
-CloudWatch billing alarms don't work on this account type either (spend is
-tracked by the Learner Lab itself, shown in the Vocareum UI, not your AWS
-bill) — that's why this project is built entirely serverless with no idle
-compute (no EC2, no Elastic Beanstalk), so there's nothing racking up cost
-between sessions regardless.
+### Important Note
+This project was built and tested on an **AWS Academy Learner Lab** account. Credentials expire every few hours (`ExpiredToken` error) and need refreshing from the Lab's "AWS Details" panel. IAM is locked down on this account type — `iam:CreateRole` is denied, so every Lambda reuses the pre-provisioned `LabRole` rather than a custom one. AWS Budgets and CloudWatch billing alarms don't work either (spend is tracked by the Lab itself, not the AWS bill) — which is the main reason this project has no EC2 instance anywhere: nothing here accrues cost just for sitting idle.
+
+---
 
 ## Configuration
 
-All sensor frequencies, dispatch rates, and fog thresholds live in
-`config.json` — nothing is hardcoded in the sensor/fog code itself. Each
-sensor entry carries its own settings (e.g. a `shelf_weight` sensor has its
-own `restock_threshold_kg`; a `temperature` sensor has its own
-`normal_range_c`), and the fog node reads these per-shelf rather than
-applying one global setting to every shelf.
+| Setting | Where | Description |
+|---|---|---|
+| `frequency_sec` | per sensor, `config.json` | how often that sensor publishes a reading |
+| `batch_interval_sec` | `config.json` → `fog` | how often the fog node sends routine readings to the backend |
+| `restock_threshold_kg` | per `shelf_weight` sensor | stock level (kg) that triggers a restock alert for that shelf |
+| `normal_range_c` / `normal_range_pct` | per `temperature` / `humidity` sensor | that shelf's own normal operating range |
+| `max_open_sec` | per `fridge_door` sensor | how long the door can stay open before an alert fires |
+| `dispatch_url` | `config.json` → `fog` | where the fog node sends data (the AWS `IngestUrl`) |
 
-## Code style
+Every threshold above is read per-shelf by the fog node, not applied globally — this matters because dairy (2-6°C) and frozen (-20 to -15°C) genuinely need different rules.
 
-The sensor, fog node, and Lambda code is deliberately written in a simple,
-beginner-friendly style (plain functions and dictionaries, no classes, no
-comprehensions, no recursion) so it's easy to read and explain line by line.
-The CloudFormation template and dashboard's JavaScript are not — those stay
-as normal infrastructure/frontend code.
+---
 
-## Files
-
-```
-config.json              all sensor, MQTT, and fog threshold configuration
-generators.py            one function per sensor type, generates a reading
-sensor_base.py           runs a single sensor forever (connect, loop, publish)
-run_sensors.py           entry point — starts one thread per configured sensor
-fog_node.py              fog node: subscribe, threshold-check, batch, dispatch
-mock_ingest.py           optional local Flask backend, for testing without AWS
-backend/template.yaml    CloudFormation: API Gateway, SQS, Lambda, DynamoDB
-backend/lambda_ingest.py SQS -> DynamoDB (writes stock + alerts)
-backend/lambda_query.py  DynamoDB -> dashboard (reads stock + active alerts)
-dashboard/index.html     self-contained live dashboard (HTML/CSS/JS)
-```
+## Code Style
+The sensor, fog node, and Lambda code is deliberately written in a simple, beginner-friendly style — plain functions and dictionaries, no classes, no comprehensions, no recursion — so it's easy to read and explain line by line. The CloudFormation template and dashboard's JavaScript are normal infrastructure/frontend code, not simplified.
