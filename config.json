@@ -1,0 +1,64 @@
+{
+  "mqtt": {
+    "host": "localhost",
+    "port": 1883,
+    "topic_prefix": "store"
+  },
+  "sensors": [
+    { "sensor_id": "shelf_weight_dairy_milk",     "type": "shelf_weight", "shelf": "dairy-milk",     "frequency_sec": 4, "initial_weight_kg": 18.0, "restock_threshold_kg": 3.0 },
+    { "sensor_id": "foot_traffic_dairy_milk",     "type": "foot_traffic", "shelf": "dairy-milk",     "frequency_sec": 6 },
+    { "sensor_id": "temperature_dairy_milk",      "type": "temperature",  "shelf": "dairy-milk",     "frequency_sec": 5, "normal_range_c": [2.0, 6.0], "anomaly_probability": 0.06 },
+    { "sensor_id": "humidity_dairy_milk",         "type": "humidity",     "shelf": "dairy-milk",     "frequency_sec": 5, "normal_range_pct": [40.0, 60.0], "anomaly_probability": 0.05 },
+    { "sensor_id": "fridge_door_dairy_milk",      "type": "fridge_door",  "shelf": "dairy-milk",     "frequency_sec": 3, "open_probability": 0.15, "max_open_sec": 20 },
+
+    { "sensor_id": "shelf_weight_dairy_yogurt",   "type": "shelf_weight", "shelf": "dairy-yogurt",   "frequency_sec": 5, "initial_weight_kg": 10.0, "restock_threshold_kg": 2.0 },
+    { "sensor_id": "foot_traffic_dairy_yogurt",   "type": "foot_traffic", "shelf": "dairy-yogurt",   "frequency_sec": 6 },
+    { "sensor_id": "temperature_dairy_yogurt",    "type": "temperature",  "shelf": "dairy-yogurt",   "frequency_sec": 5, "normal_range_c": [2.0, 6.0], "anomaly_probability": 0.06 },
+    { "sensor_id": "humidity_dairy_yogurt",       "type": "humidity",     "shelf": "dairy-yogurt",   "frequency_sec": 5, "normal_range_pct": [40.0, 60.0], "anomaly_probability": 0.05 },
+    { "sensor_id": "fridge_door_dairy_yogurt",    "type": "fridge_door",  "shelf": "dairy-yogurt",   "frequency_sec": 3, "open_probability": 0.15, "max_open_sec": 20 },
+
+    { "sensor_id": "shelf_weight_dairy_cheese",   "type": "shelf_weight", "shelf": "dairy-cheese",   "frequency_sec": 5, "initial_weight_kg": 8.0, "restock_threshold_kg": 1.5 },
+    { "sensor_id": "foot_traffic_dairy_cheese",   "type": "foot_traffic", "shelf": "dairy-cheese",   "frequency_sec": 7 },
+    { "sensor_id": "temperature_dairy_cheese",    "type": "temperature",  "shelf": "dairy-cheese",   "frequency_sec": 5, "normal_range_c": [2.0, 6.0], "anomaly_probability": 0.06 },
+    { "sensor_id": "humidity_dairy_cheese",       "type": "humidity",     "shelf": "dairy-cheese",   "frequency_sec": 5, "normal_range_pct": [40.0, 60.0], "anomaly_probability": 0.05 },
+    { "sensor_id": "fridge_door_dairy_cheese",    "type": "fridge_door",  "shelf": "dairy-cheese",   "frequency_sec": 3, "open_probability": 0.15, "max_open_sec": 20 },
+
+    { "sensor_id": "shelf_weight_dairy_butter",   "type": "shelf_weight", "shelf": "dairy-butter",   "frequency_sec": 6, "initial_weight_kg": 6.0, "restock_threshold_kg": 1.0 },
+    { "sensor_id": "foot_traffic_dairy_butter",   "type": "foot_traffic", "shelf": "dairy-butter",   "frequency_sec": 7 },
+    { "sensor_id": "temperature_dairy_butter",    "type": "temperature",  "shelf": "dairy-butter",   "frequency_sec": 5, "normal_range_c": [2.0, 6.0], "anomaly_probability": 0.06 },
+    { "sensor_id": "humidity_dairy_butter",       "type": "humidity",     "shelf": "dairy-butter",   "frequency_sec": 5, "normal_range_pct": [40.0, 60.0], "anomaly_probability": 0.05 },
+    { "sensor_id": "fridge_door_dairy_butter",    "type": "fridge_door",  "shelf": "dairy-butter",   "frequency_sec": 3, "open_probability": 0.15, "max_open_sec": 20 },
+
+    { "sensor_id": "shelf_weight_frozen_icecream",   "type": "shelf_weight", "shelf": "frozen-icecream",   "frequency_sec": 5, "initial_weight_kg": 12.0, "restock_threshold_kg": 2.0 },
+    { "sensor_id": "foot_traffic_frozen_icecream",   "type": "foot_traffic", "shelf": "frozen-icecream",   "frequency_sec": 6 },
+    { "sensor_id": "temperature_frozen_icecream",    "type": "temperature",  "shelf": "frozen-icecream",   "frequency_sec": 5, "normal_range_c": [-20.0, -15.0], "anomaly_probability": 0.06 },
+    { "sensor_id": "humidity_frozen_icecream",       "type": "humidity",     "shelf": "frozen-icecream",   "frequency_sec": 5, "normal_range_pct": [10.0, 25.0], "anomaly_probability": 0.05 },
+    { "sensor_id": "fridge_door_frozen_icecream",    "type": "fridge_door",  "shelf": "frozen-icecream",   "frequency_sec": 3, "open_probability": 0.12, "max_open_sec": 20 },
+
+    { "sensor_id": "shelf_weight_frozen_vegetables", "type": "shelf_weight", "shelf": "frozen-vegetables", "frequency_sec": 5, "initial_weight_kg": 15.0, "restock_threshold_kg": 3.0 },
+    { "sensor_id": "foot_traffic_frozen_vegetables", "type": "foot_traffic", "shelf": "frozen-vegetables", "frequency_sec": 7 },
+    { "sensor_id": "temperature_frozen_vegetables",  "type": "temperature",  "shelf": "frozen-vegetables", "frequency_sec": 5, "normal_range_c": [-20.0, -15.0], "anomaly_probability": 0.06 },
+    { "sensor_id": "humidity_frozen_vegetables",     "type": "humidity",     "shelf": "frozen-vegetables", "frequency_sec": 5, "normal_range_pct": [10.0, 25.0], "anomaly_probability": 0.05 },
+    { "sensor_id": "fridge_door_frozen_vegetables",  "type": "fridge_door",  "shelf": "frozen-vegetables", "frequency_sec": 3, "open_probability": 0.12, "max_open_sec": 20 },
+
+    { "sensor_id": "shelf_weight_bakery_bread",   "type": "shelf_weight", "shelf": "bakery-bread",   "frequency_sec": 4, "initial_weight_kg": 5.0, "restock_threshold_kg": 1.0 },
+    { "sensor_id": "foot_traffic_bakery_bread",   "type": "foot_traffic", "shelf": "bakery-bread",   "frequency_sec": 6 },
+
+    { "sensor_id": "shelf_weight_produce_apples",   "type": "shelf_weight", "shelf": "produce-apples",   "frequency_sec": 4, "initial_weight_kg": 20.0, "restock_threshold_kg": 4.0 },
+    { "sensor_id": "foot_traffic_produce_apples",   "type": "foot_traffic", "shelf": "produce-apples",   "frequency_sec": 6 },
+
+    { "sensor_id": "shelf_weight_produce_bananas",  "type": "shelf_weight", "shelf": "produce-bananas",  "frequency_sec": 4, "initial_weight_kg": 18.0, "restock_threshold_kg": 3.0 },
+    { "sensor_id": "foot_traffic_produce_bananas",  "type": "foot_traffic", "shelf": "produce-bananas",  "frequency_sec": 6 },
+
+    { "sensor_id": "shelf_weight_beverages_soda",   "type": "shelf_weight", "shelf": "beverages-soda",   "frequency_sec": 4, "initial_weight_kg": 25.0, "restock_threshold_kg": 5.0 },
+    { "sensor_id": "foot_traffic_beverages_soda",   "type": "foot_traffic", "shelf": "beverages-soda",   "frequency_sec": 6 }
+  ],
+  "fog": {
+    "batch_interval_sec": 15,
+    "restock_threshold_kg": 4.0,
+    "door_max_open_sec": 20,
+    "temp_range_c": [2.0, 6.0],
+    "humidity_range_pct": [40.0, 60.0],
+    "dispatch_url": "https://ophlzcfz8l.execute-api.us-east-1.amazonaws.com/prod/ingest"
+  }
+}

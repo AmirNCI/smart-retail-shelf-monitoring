@@ -1,0 +1,356 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Smart retail shelf monitoring backend (Day 2) - API Gateway -> SQS -> Lambda -> DynamoDB.
+  Built for an AWS Academy Learner Lab account: no new IAM roles are created (iam:CreateRole
+  is denied on this account type) - every Lambda and the API Gateway/SQS integration reuse
+  the pre-provisioned LabRole. Lambda code is inlined so no S3 deployment bucket is needed.
+
+Resources:
+
+  # ---------- DynamoDB ----------
+
+  ShelfStockTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: smart-retail-shelf-stock
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: shelf
+          AttributeType: S
+      KeySchema:
+        - AttributeName: shelf
+          KeyType: HASH
+
+  AlertsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: smart-retail-alerts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: shelf
+          AttributeType: S
+        - AttributeName: alert_type
+          AttributeType: S
+      KeySchema:
+        - AttributeName: shelf
+          KeyType: HASH
+        - AttributeName: alert_type
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ---------- SQS ----------
+
+  IngestDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: smart-retail-ingest-dlq
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  IngestQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: smart-retail-ingest
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt IngestDLQ.Arn
+        maxReceiveCount: 3
+
+  # ---------- Lambda: SQS -> DynamoDB ----------
+
+  IngestFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: smart-retail-ingest
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          STOCK_TABLE: !Ref ShelfStockTable
+          ALERTS_TABLE: !Ref AlertsTable
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import time
+          from decimal import Decimal
+
+          import boto3
+
+          dynamodb = boto3.resource("dynamodb")
+          stock_table = dynamodb.Table(os.environ["STOCK_TABLE"])
+          alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
+
+          ALERT_ACTIVE_SECONDS = 120
+
+
+          def lambda_handler(event, context):
+              for record in event["Records"]:
+                  try:
+                      payload = json.loads(record["body"], parse_float=Decimal)
+                  except (json.JSONDecodeError, KeyError):
+                      continue
+
+                  if payload.get("kind") == "alert":
+                      save_alerts(payload)
+                  elif payload.get("kind") == "batch":
+                      save_batch(payload)
+
+              return {"batchItemFailures": []}
+
+
+          def save_alerts(payload):
+              now = int(time.time())
+              for alert in payload.get("alerts", []):
+                  shelf = alert.get("shelf", payload.get("shelf", "unknown"))
+
+                  detail = {}
+                  for key in alert:
+                      if key != "type" and key != "shelf":
+                          detail[key] = alert[key]
+
+                  alerts_table.put_item(Item={
+                      "shelf": shelf,
+                      "alert_type": alert.get("type", "unknown"),
+                      "detail": json.dumps(detail, default=decimal_to_number),
+                      "detected_at": alert.get("detected_at", ""),
+                      "ttl": now + ALERT_ACTIVE_SECONDS,
+                  })
+
+
+          def save_batch(payload):
+              last_updated = payload.get("dispatched_at", "")
+              for shelf, readings in payload.get("shelves", {}).items():
+                  item = {"shelf": shelf, "last_updated": last_updated}
+                  for sensor_type, reading in readings.items():
+                      if sensor_type == "shelf_weight":
+                          item["weight_kg"] = reading.get("weight_kg")
+                      elif sensor_type == "foot_traffic":
+                          item["people_count"] = reading.get("people_count")
+                      elif sensor_type == "temperature":
+                          item["temperature_c"] = reading.get("temperature_c")
+                      elif sensor_type == "humidity":
+                          item["humidity_pct"] = reading.get("humidity_pct")
+                      elif sensor_type == "fridge_door":
+                          item["door_open"] = reading.get("door_open")
+                          item["door_open_sec"] = reading.get("open_duration_sec")
+                  stock_table.put_item(Item=item)
+
+
+          def decimal_to_number(value):
+              if isinstance(value, Decimal):
+                  if value == int(value):
+                      return int(value)
+                  return float(value)
+              return str(value)
+
+  IngestEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt IngestQueue.Arn
+      FunctionName: !Ref IngestFunction
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 2
+
+  # ---------- Lambda: GET /status -> DynamoDB (dashboard read API) ----------
+
+  QueryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: smart-retail-query
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          STOCK_TABLE: !Ref ShelfStockTable
+          ALERTS_TABLE: !Ref AlertsTable
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import time
+          from decimal import Decimal
+
+          import boto3
+
+          dynamodb = boto3.resource("dynamodb")
+          stock_table = dynamodb.Table(os.environ["STOCK_TABLE"])
+          alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
+
+
+          def number_from_decimal(value):
+              if value == int(value):
+                  return int(value)
+              return float(value)
+
+
+          def clean_shelf_item(item):
+              clean_item = {}
+              for key, value in item.items():
+                  if isinstance(value, Decimal):
+                      clean_item[key] = number_from_decimal(value)
+                  else:
+                      clean_item[key] = value
+              return clean_item
+
+
+          def clean_alert_item(item):
+              clean_item = clean_shelf_item(item)
+              clean_item["detail"] = json.loads(clean_item.get("detail", "{}"))
+              return clean_item
+
+
+          def lambda_handler(event, context):
+              now = int(time.time())
+
+              shelf_items = stock_table.scan().get("Items", [])
+              clean_shelves = []
+              for item in shelf_items:
+                  clean_shelves.append(clean_shelf_item(item))
+
+              alert_items = alerts_table.scan().get("Items", [])
+              active_alerts = []
+              for item in alert_items:
+                  if int(item.get("ttl", 0)) > now:
+                      active_alerts.append(clean_alert_item(item))
+
+              body = {"shelves": clean_shelves, "alerts": active_alerts}
+              return {
+                  "statusCode": 200,
+                  "headers": {
+                      "Content-Type": "application/json",
+                      "Access-Control-Allow-Origin": "*",
+                  },
+                  "body": json.dumps(body),
+              }
+
+  QueryFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref QueryFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/GET/status
+
+  # ---------- API Gateway (REST) ----------
+
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: smart-retail-api
+      EndpointConfiguration:
+        Types: [REGIONAL]
+
+  IngestResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: ingest
+
+  IngestMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref IngestResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:sqs:path/${AWS::AccountId}/${IngestQueue.QueueName}
+        Credentials: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+        RequestParameters:
+          integration.request.header.Content-Type: "'application/x-www-form-urlencoded'"
+        RequestTemplates:
+          application/json: "Action=SendMessage&MessageBody=$util.urlEncode($input.body)"
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseTemplates:
+              application/json: '{"status":"queued"}'
+      MethodResponses:
+        - StatusCode: "200"
+
+  StatusResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: status
+
+  StatusMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref StatusResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QueryFunction.Arn}/invocations
+      MethodResponses:
+        - StatusCode: "200"
+
+  Deployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - IngestMethod
+      - StatusMethod
+    Properties:
+      RestApiId: !Ref RestApi
+
+  Stage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref RestApi
+      DeploymentId: !Ref Deployment
+      StageName: prod
+
+  # ---------- Dashboard hosting (S3 static website) ----------
+  # This is what actually puts the dashboard "in the cloud" instead of it
+  # only working as a local file on one laptop -- anyone with this URL can
+  # open the same live dashboard, no local setup needed.
+
+  DashboardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub smart-retail-dashboard-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+
+  DashboardBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DashboardBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::${DashboardBucket}/*
+
+Outputs:
+  IngestUrl:
+    Description: POST here from fog_node.py (config.json "fog.dispatch_url")
+    Value: !Sub https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/ingest
+  StatusUrl:
+    Description: GET here from the dashboard (polling)
+    Value: !Sub https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/status
+  DashboardUrl:
+    Description: Public URL for the hosted dashboard (upload dashboard/index.html here)
+    Value: !GetAtt DashboardBucket.WebsiteURL
