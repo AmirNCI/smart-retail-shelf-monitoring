@@ -1,6 +1,5 @@
 # Smart Retail Shelf Monitoring
-A fog-computing based smart retail system: mock sensors publish shelf data over MQTT to a coded fog node, which processes it locally (threshold alerts + batching) and forwards it to a serverless AWS backend, feeding a live dashboard. Built for NCI module H9FECC (Fog and Edge Computing).
-
+A fog-computing based smart retail system: mock sensors publish shelf data over MQTT to a coded fog node, which processes it locally (threshold alerts + batching) and forwards it to a serverless AWS backend, feeding a live dashboard.
 ---
 
 ## Live Application
